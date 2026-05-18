@@ -1,0 +1,41 @@
+name: Publish @pocketsign/klon-sdk-typescript
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "package.json"
+      - ".github/workflows/publish.yml"
+
+jobs:
+  publish:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+
+      - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set prerelease version
+        run: |
+          TIMESTAMP=$(date -u -d "@$(git show -s --format=%ct HEAD)" +"%Y%m%d%H%M%S")
+          SHORT_SHA=$(git rev-parse --short=12 HEAD)
+          pnpm version prerelease --preid "${TIMESTAMP}-${SHORT_SHA}" --no-git-tag-version
+
+      - name: Publish
+        run: pnpm publish --tag latest --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
