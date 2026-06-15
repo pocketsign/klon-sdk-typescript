@@ -23,10 +23,11 @@
 import * as oauth from "oauth4webapi";
 import type { AuthorizationDetail } from "./authorization-details";
 import { buildAuthorizationDetails, isAuthorizationDetail } from "./authorization-details";
+import { bindNativeSession as bindNativeSessionRequest } from "./bind";
 import { buildScope } from "./scope";
 import { buildAcrValues } from "./acr";
 import { buildPrompt } from "./prompt";
-import { loadOrGenerateKeyPair } from "./dpop";
+import { getOrCreateDPoPHandle, resetDPoPHandle } from "./dpop";
 import type { IDTokenClaims } from "./id-token-claims";
 import type {
   AuthorizeOptions,
@@ -36,13 +37,14 @@ import type {
   TokenSet,
 } from "./types";
 
-/** KLON 固有: ネイティブアプリ WebView セッションバインドエンドポイントのパス */
-const NATIVE_BIND_PATH = "/api/native/v1/bind";
+type InternalAuthorizeOptions = AuthorizeOptions & {
+  /** pocketsign向けの非公開UI開始位置ヒント。公開APIとしては扱わない。 */
+  klonAuthEntry?: "email";
+};
 
 export class OIDCClient {
   private config: ClientConfig;
   private discoveryPromise: Promise<oauth.AuthorizationServer> | null = null;
-  private dpopHandlePromise: Promise<oauth.DPoPHandle> | null = null;
 
   constructor(config: ClientConfig) {
     this.config = config;
@@ -121,6 +123,10 @@ export class OIDCClient {
     if (options.grantManagementAction) {
       authorizationParams.set("grant_management_action", options.grantManagementAction);
     }
+    const klonAuthEntry = (options as InternalAuthorizeOptions).klonAuthEntry;
+    if (klonAuthEntry) {
+      authorizationParams.set("klon_auth_entry", klonAuthEntry);
+    }
 
     const authorizationEndpoint = as.authorization_endpoint;
     if (!authorizationEndpoint) {
@@ -168,6 +174,7 @@ export class OIDCClient {
         nonce,
         codeVerifier,
         redirectUri: this.config.redirectUri,
+        maxAge: options.maxAge,
       },
     };
   }
@@ -208,9 +215,10 @@ export class OIDCClient {
     const result = await oauth.processAuthorizationCodeResponse(as, client, response, {
       expectedNonce: session.nonce,
       requireIdToken: true,
+      maxAge: session.maxAge,
     });
 
-    await oauth.validateApplicationLevelSignature(as, response);
+    await oauth.validateApplicationLevelSignature(as, response, this.fetchOptions());
 
     return toTokenSet(result);
   }
@@ -228,6 +236,9 @@ export class OIDCClient {
     });
 
     const result = await oauth.processRefreshTokenResponse(as, client, response);
+    if (result.id_token) {
+      await oauth.validateApplicationLevelSignature(as, response, this.fetchOptions());
+    }
 
     return toTokenSet(result);
   }
@@ -243,27 +254,13 @@ export class OIDCClient {
    * @param accessToken アクセストークン (DPoP 有効時は DPoP-bound トークン)
    */
   async bindNativeSession(bindId: string, accessToken: string): Promise<BindNativeSessionResult> {
-    const dpopHandle = await this.getDPoPHandle();
-    const url = new URL(NATIVE_BIND_PATH, this.config.issuer);
-    const headers = new Headers({ "Content-Type": "application/json" });
-    const body = JSON.stringify({ bind_id: bindId });
-
-    const response = await oauth.protectedResourceRequest(accessToken, "POST", url, headers, body, {
-      ...this.fetchOptions(),
-      DPoP: dpopHandle,
+    return bindNativeSessionRequest({
+      issuer: this.config.issuer,
+      bindId,
+      accessToken,
+      fetchOptions: this.fetchOptions(),
+      dpopHandle: await this.getDPoPHandle(),
     });
-
-    if (!response.ok) {
-      throw new Error(`Session binding failed (HTTP ${response.status})`);
-    }
-
-    const data = (await response.json()) as { bind_complete_url: string };
-    const completeUrl = new URL(data.bind_complete_url);
-    const allowedOrigin = new URL(this.config.issuer).origin;
-    if (completeUrl.origin !== allowedOrigin) {
-      throw new Error("Unexpected bind_complete_url origin");
-    }
-    return { bindCompleteUrl: data.bind_complete_url };
   }
 
   /**
@@ -280,36 +277,23 @@ export class OIDCClient {
   async resetDPoPKey(): Promise<void> {
     if (this.config.dpop) {
       await this.config.dpop.keyStore.clear();
+      resetDPoPHandle(this.config.dpop.keyStore);
     }
-    this.dpopHandlePromise = null;
   }
 
   /**
-   * DPoPHandle を遅延生成してキャッシュする。
+   * DPoPHandle を KeyStore 単位の共有キャッシュから取得する。
    *
-   * DPoPHandle はサーバー発行の nonce を保持するため、
-   * クライアントインスタンスで単一のハンドルを使い回す必要がある。
+   * DPoPHandle はサーバー発行の nonce を origin ごとに保持するため、
+   * 同じ KeyStore を使う SDK 内部リクエストと protected resource fetch で
+   * 単一のハンドルを使い回す必要がある。
    * `dpop` 未設定時は undefined を返し、呼び出し側は通常の Bearer フローを維持する。
    */
   private getDPoPHandle(): Promise<oauth.DPoPHandle> | undefined {
     if (!this.config.dpop) {
       return undefined;
     }
-    if (this.dpopHandlePromise) {
-      return this.dpopHandlePromise;
-    }
-    const dpop = this.config.dpop;
-    this.dpopHandlePromise = (async () => {
-      try {
-        const keyPair = await loadOrGenerateKeyPair(dpop.keyStore);
-        return oauth.DPoP(this.getClient(), keyPair);
-      } catch (err) {
-        // 失敗時はキャッシュをクリアして再試行可能にする (discover() と同じパターン)
-        this.dpopHandlePromise = null;
-        throw err;
-      }
-    })();
-    return this.dpopHandlePromise;
+    return getOrCreateDPoPHandle(this.config.dpop.keyStore);
   }
 
   private getClient(): oauth.Client {

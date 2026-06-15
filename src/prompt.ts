@@ -29,5 +29,8 @@ export function buildPrompt(prompts: Iterable<string>): string {
       result.push(p);
     }
   }
+  if (result.length > 1 && result.includes(Prompts.NONE)) {
+    throw new Error("prompt=none cannot be combined with other prompt values");
+  }
   return result.join(" ");
 }

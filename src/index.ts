@@ -1,5 +1,6 @@
 // Client
 export { OIDCClient, createClient } from "./client";
+export { BindNativeSessionError } from "./bind";
 
 // Authorization Details
 export {
@@ -47,4 +48,4 @@ export type {
 
 // DPoP
 export { createDPoPFetch } from "./dpop";
-export type { CreateDPoPFetchOptions, DPoPKeyStore, DPoPOptions } from "./dpop";
+export type { CreateDPoPFetchOptions, DPoPFetch, DPoPKeyStore, DPoPOptions } from "./dpop";

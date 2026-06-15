@@ -74,10 +74,6 @@ export const Resources = {
   MERGED_LAST_NAME_RUBY: "klon/merged_last_name_ruby",
   MERGED_MAIDEN_NAME_RUBY: "klon/merged_maiden_name_ruby",
   MERGED_FULL_NAME_RUBY: "klon/merged_full_name_ruby",
-  MERGED_RAW_NAME: "klon/merged_raw_name",
-  MERGED_RAW_GENDER: "klon/merged_raw_gender",
-  MERGED_RAW_ADDRESS: "klon/merged_raw_address",
-  MERGED_RAW_BIRTH_DATE: "klon/merged_raw_birth_date",
 
   // -- 連絡先 --
   EMAIL_ADDRESS: "klon/email_address",

@@ -1,5 +1,6 @@
 import * as oauth from "oauth4webapi";
 import { describe, expect, it, vi } from "vitest";
+import { createClient } from "./client";
 import { createDPoPFetch, loadOrGenerateKeyPair, type DPoPKeyStore } from "./dpop";
 
 function createMemoryKeyStore(): DPoPKeyStore {
@@ -236,6 +237,36 @@ describe("createDPoPFetch", () => {
 
     expect(loadCount).toBe(1);
     expect(saveCount).toBe(1);
+  });
+
+  it("同じ KeyStore の client.resetDPoPKey() 後は fetch wrapper も新しい鍵で proof を作る", async () => {
+    const calls: { input: RequestInfo | URL; init?: RequestInit }[] = [];
+    const baseFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input, init });
+      return new Response("ok");
+    });
+    const keyStore = createMemoryKeyStore();
+    const client = createClient({
+      issuer: "https://idp.example.com",
+      clientId: "test-client",
+      redirectUri: "app://callback",
+      dpop: { keyStore },
+    });
+    const dpopFetch = createDPoPFetch({
+      keyStore,
+      getAccessToken: async () => "access-token-123",
+      fetch: baseFetch as unknown as typeof globalThis.fetch,
+    });
+
+    await dpopFetch("https://registry.example.com/a");
+    const proofBefore = decodeDPoPProof(new Headers(calls[0]?.init?.headers).get("DPoP") ?? "");
+
+    await client.resetDPoPKey();
+    await dpopFetch("https://registry.example.com/b");
+    const proofAfter = decodeDPoPProof(new Headers(calls[1]?.init?.headers).get("DPoP") ?? "");
+
+    expect(proofAfter.header.jwk.x).not.toBe(proofBefore.header.jwk.x);
+    expect(proofAfter.header.jwk.y).not.toBe(proofBefore.header.jwk.y);
   });
 
   it("use_dpop_nonce challenge では nonce を反映して一度だけ retry する", async () => {

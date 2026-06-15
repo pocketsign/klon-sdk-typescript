@@ -58,6 +58,12 @@ export interface CreateDPoPFetchOptions {
   allowInsecureRequests?: boolean;
 }
 
+export type DPoPFetch = typeof globalThis.fetch & {
+  resetDPoPKey(): Promise<void>;
+};
+
+const dpopHandlePromises = new WeakMap<DPoPKeyStore, Promise<oauth.DPoPHandle>>();
+
 /**
  * KeyStore から鍵ペアを読み出し、無ければ ES256 で生成して保存する。
  *
@@ -74,32 +80,51 @@ export async function loadOrGenerateKeyPair(keyStore: DPoPKeyStore): Promise<Cry
 }
 
 /**
+ * KeyStore 単位で DPoPHandle を遅延生成して共有する。
+ *
+ * DPoPHandle はサーバー発行 nonce を origin ごとに保持するため、同じ鍵ペアを使う
+ * SDK 内部リクエストと protected resource fetch で同じ handle を使い回す。
+ *
+ * @internal
+ */
+export function getOrCreateDPoPHandle(keyStore: DPoPKeyStore): Promise<oauth.DPoPHandle> {
+  const cached = dpopHandlePromises.get(keyStore);
+  if (cached) {
+    return cached;
+  }
+
+  const promise = (async () => {
+    try {
+      const keyPair = await loadOrGenerateKeyPair(keyStore);
+      return oauth.DPoP({}, keyPair);
+    } catch (err) {
+      dpopHandlePromises.delete(keyStore);
+      throw err;
+    }
+  })();
+  dpopHandlePromises.set(keyStore, promise);
+  return promise;
+}
+
+/**
+ * KeyStore に紐づく DPoPHandle キャッシュを破棄する。
+ *
+ * @internal
+ */
+export function resetDPoPHandle(keyStore: DPoPKeyStore): void {
+  dpopHandlePromises.delete(keyStore);
+}
+
+/**
  * KLON access token を使う protected resource request に DPoP proof を自動付与する
  * fetch wrapper を作成する。
  */
-export function createDPoPFetch(options: CreateDPoPFetchOptions): typeof globalThis.fetch {
+export function createDPoPFetch(options: CreateDPoPFetchOptions): DPoPFetch {
   const baseFetch = options.fetch ?? globalThis.fetch;
-  let dpopHandlePromise: Promise<oauth.DPoPHandle> | null = null;
 
-  const getDPoPHandle = (): Promise<oauth.DPoPHandle> => {
-    if (dpopHandlePromise) {
-      return dpopHandlePromise;
-    }
-    dpopHandlePromise = (async () => {
-      try {
-        const keyPair = await loadOrGenerateKeyPair(options.keyStore);
-        return oauth.DPoP({}, keyPair);
-      } catch (err) {
-        dpopHandlePromise = null;
-        throw err;
-      }
-    })();
-    return dpopHandlePromise;
-  };
-
-  return async (input, init) => {
+  const dpopFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const accessToken = await options.getAccessToken();
-    const dpopHandle = await getDPoPHandle();
+    const dpopHandle = await getOrCreateDPoPHandle(options.keyStore);
     const request = toRequestParts(input, init);
 
     const send = () =>
@@ -124,7 +149,14 @@ export function createDPoPFetch(options: CreateDPoPFetchOptions): typeof globalT
       }
       throw err;
     }
+  }) as DPoPFetch;
+
+  dpopFetch.resetDPoPKey = async () => {
+    await options.keyStore.clear();
+    resetDPoPHandle(options.keyStore);
   };
+
+  return dpopFetch;
 }
 
 function fetchOptions(

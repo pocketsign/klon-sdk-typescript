@@ -21,4 +21,10 @@ describe("buildPrompt", () => {
   it("イテレーション順を維持する", () => {
     expect(buildPrompt([Prompts.CONSENT, Prompts.LOGIN])).toBe("consent login");
   });
+
+  it("none と他の prompt の併用はエラーを投げる", () => {
+    expect(() => buildPrompt([Prompts.NONE, Prompts.LOGIN])).toThrow(
+      "prompt=none cannot be combined with other prompt values",
+    );
+  });
 });

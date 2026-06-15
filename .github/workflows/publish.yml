@@ -1,4 +1,4 @@
-name: Publish @pocketsign/klon-sdk-typescript
+name: Publish @pocketsign/klon-sdk (GitHub Packages)
 
 on:
   push:
@@ -29,11 +29,16 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set prerelease version
+      - name: Set snapshot version
+        # GitHub Packages はスナップショット専用フィード。安定版は存在しないので
+        # base 0.0.0 の prerelease (0.0.0-<時刻>-<sha>) として publish する。
         run: |
           TIMESTAMP=$(date -u -d "@$(git show -s --format=%ct HEAD)" +"%Y%m%d%H%M%S")
           SHORT_SHA=$(git rev-parse --short=12 HEAD)
-          pnpm version prerelease --preid "${TIMESTAMP}-${SHORT_SHA}" --no-git-tag-version
+          pnpm version "0.0.0-${TIMESTAMP}-${SHORT_SHA}" --no-git-tag-version --allow-same-version
+
+      - name: Build
+        run: pnpm run build
 
       - name: Publish
         run: pnpm publish --tag latest --no-git-checks

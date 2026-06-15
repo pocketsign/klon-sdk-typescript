@@ -51,6 +51,8 @@ export interface AuthorizationSession {
   nonce: string;
   codeVerifier: string;
   redirectUri: string;
+  /** 認可リクエスト時に指定した max_age。コールバック時の auth_time 検証に使う。 */
+  maxAge?: number;
 }
 
 /** `client.bindNativeSession()` の結果 */
@@ -61,8 +63,8 @@ export interface BindNativeSessionResult {
 
 export interface TokenSet {
   accessToken: string;
-  /** 通常 "Bearer" */
-  tokenType: string;
+  /** oauth4webapi により小文字化された token_type。通常 "bearer" または "dpop" */
+  tokenType: "bearer" | "dpop" | Lowercase<string>;
   /** 有効期限 (秒) */
   expiresIn?: number;
   refreshToken?: string;

@@ -138,7 +138,7 @@ console.log(tokenSet.idTokenClaims?.jpki_verified); // JPKI 紐づけ状態
 
 #### `client.refreshToken(refreshToken): Promise<TokenSet>`
 
-リフレッシュトークンでアクセストークンを更新する。レスポンスに新しい ID Token が含まれる場合は `idTokenClaims` もセットされる。
+リフレッシュトークンでアクセストークンを更新する。レスポンスに新しい ID Token が含まれる場合は署名・issuer・audience・expiry を検証し、成功した場合のみ `idTokenClaims` もセットされる。
 
 #### `client.bindNativeSession(bindId, accessToken): Promise<BindNativeSessionResult>`
 
@@ -149,7 +149,7 @@ const { bindCompleteUrl } = await client.bindNativeSession(bindId, accessToken);
 // bindCompleteUrl を WebView にロードしてバインド完了させる
 ```
 
-#### `createDPoPFetch(options): typeof globalThis.fetch`
+#### `createDPoPFetch(options): DPoPFetch`
 
 Registry API や IdP の protected API など、KLON access token が必要な API 呼び出しに DPoP proof を自動付与する fetch wrapper を作成する。
 
@@ -181,6 +181,14 @@ const transport = createConnectTransport({
 
 サーバーが DPoP nonce を要求した場合、文字列や `Uint8Array` など再送可能な body では 1 回だけ自動 retry する。`ReadableStream` など再送できない body は自動 retry しない。
 
+#### `dpopFetch.resetDPoPKey(): Promise<void>`
+
+`createDPoPFetch()` が返した fetch wrapper の保存済み DPoP 鍵と `DPoPHandle` キャッシュを破棄する。Registry API 等の protected resource 用 fetch wrapper を保持している場合は、ログアウトやアカウント切替時に `client.resetDPoPKey()` とあわせて呼び出す。
+
+```ts
+await dpopFetch.resetDPoPKey();
+```
+
 #### `client.resetDPoPKey(): Promise<void>`
 
 保存済みの DPoP 鍵と SDK 内部の `DPoPHandle` キャッシュを破棄する。ログアウトやアカウント切替時に呼び出す。
@@ -195,7 +203,7 @@ await client.resetDPoPKey();
 ```ts
 interface TokenSet {
   accessToken: string;
-  tokenType: string; // "Bearer" または "DPoP"
+  tokenType: string; // oauth4webapi により小文字化された "bearer" または "dpop"
   expiresIn?: number;
   refreshToken?: string;
   idToken?: string; // 生の JWT 文字列
@@ -225,15 +233,16 @@ SDK は初回に `load()` を呼び、`null` なら `generateKeyPair("ES256", { 
 
 - DPoP では同じ鍵ペアを継続利用する必要があるため、`DPoPKeyStore` で鍵を永続化する
 - React Native では Secure Store / Keychain 系の保存先を推奨する
-- token response の `token_type` は `Bearer` ではなく `DPoP` になり得る
+- token response の `token_type` は `bearer` ではなく `dpop` になり得る
 - `createClient({ dpop })` が自動で proof を付けるのは SDK 自身が送るリクエストだけ
 - Registry API 等を直接呼ぶ場合は `createDPoPFetch` を使う
-- ログアウトやアカウント切替時は `client.resetDPoPKey()` で保存済み鍵と SDK 内部キャッシュを一括クリアする
+- ログアウトやアカウント切替時は `client.resetDPoPKey()` と、作成済みの `dpopFetch.resetDPoPKey()` で保存済み鍵と SDK 内部キャッシュをクリアする
 
 ```ts
 const logout = async () => {
   await clearTokens();
-  await client.resetDPoPKey(); // DPoP 鍵とキャッシュを一括クリア
+  await client.resetDPoPKey();
+  await dpopFetch.resetDPoPKey();
 };
 ```
 
