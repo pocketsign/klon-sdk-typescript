@@ -1,0 +1,74 @@
+name: Release to Artifact Registry
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment:
+          - dev
+          - prod
+    environment:
+      name: sdk-external-${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Set version
+        # リリースのタグ名 (例: v1.2.0) を semver として採用する。
+        # タグ名はシェルに直接展開せず env 経由で渡す（インジェクション対策）。
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?([+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $TAG" >&2
+            exit 1
+          fi
+          pnpm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - run: pnpm run build
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDP }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          version: ">= 363.0.0"
+
+      - name: Artifact Registry login
+        env:
+          PROJECT_ID: ${{ steps.auth.outputs.project_id }}
+        run: |
+          # @pocketsign を Artifact Registry に向ける .npmrc を生成し、認証トークンを書き込む
+          gcloud artifacts print-settings npm \
+            --project="$PROJECT_ID" \
+            --location=asia-northeast1 \
+            --repository=sdk-npm \
+            --scope=@pocketsign > .npmrc
+          pnpm dlx google-artifactregistry-auth@3.1.2 --credential-config=.npmrc
+
+      - name: Publish package
+        run: pnpm publish --no-git-checks
