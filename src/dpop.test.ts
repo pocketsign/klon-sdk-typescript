@@ -269,6 +269,32 @@ describe("createDPoPFetch", () => {
     expect(proofAfter.header.jwk.y).not.toBe(proofBefore.header.jwk.y);
   });
 
+  it("fetch wrapper の resetDPoPKey() 後は新しい鍵で proof を作る", async () => {
+    const calls: { input: RequestInfo | URL; init?: RequestInit }[] = [];
+    const baseFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input, init });
+      return new Response("ok");
+    });
+    const keyStore = createMemoryKeyStore();
+    const clearSpy = vi.spyOn(keyStore, "clear");
+    const dpopFetch = createDPoPFetch({
+      keyStore,
+      getAccessToken: async () => "access-token-123",
+      fetch: baseFetch as unknown as typeof globalThis.fetch,
+    });
+
+    await dpopFetch("https://registry.example.com/a");
+    const proofBefore = decodeDPoPProof(new Headers(calls[0]?.init?.headers).get("DPoP") ?? "");
+
+    await dpopFetch.resetDPoPKey();
+    await dpopFetch("https://registry.example.com/b");
+    const proofAfter = decodeDPoPProof(new Headers(calls[1]?.init?.headers).get("DPoP") ?? "");
+
+    expect(clearSpy).toHaveBeenCalledOnce();
+    expect(proofAfter.header.jwk.x).not.toBe(proofBefore.header.jwk.x);
+    expect(proofAfter.header.jwk.y).not.toBe(proofBefore.header.jwk.y);
+  });
+
   it("use_dpop_nonce challenge では nonce を反映して一度だけ retry する", async () => {
     const calls: { input: RequestInfo | URL; init?: RequestInit }[] = [];
     const baseFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

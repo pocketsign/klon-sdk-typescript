@@ -4,11 +4,22 @@ KLON IdP と連携するための TypeScript SDK。[oauth4webapi](https://github
 
 ## インストール
 
+`@pocketsign` スコープのパッケージは専用レジストリで配布しています。プロジェクトのルートに `.npmrc` を作成し、レジストリと SDK 取得用トークンを設定してください。
+
+```plaintext
+@pocketsign:registry=https://repo.platform.p8n.app
+//repo.platform.p8n.app/:_authToken=<YOUR_SDK_TOKEN>
+```
+
+`<YOUR_SDK_TOKEN>` には SDK 取得用トークンを設定します（取得方法は [SDK 取得用トークンの作成](https://docs.p8n.app/docs/verify/guide/getting-started/sdk-token) を参照）。トークンが VCS に記録されないよう注意してください。
+
+設定後、パッケージをインストールします。
+
 ```bash
 pnpm add @pocketsign/klon-sdk oauth4webapi
 ```
 
-`oauth4webapi` は peerDependency のため、別途インストールが必要。
+`oauth4webapi` は peerDependency のため、別途インストールが必要です。
 
 ## クイックスタート
 
@@ -51,8 +62,13 @@ oauth4webapi は内部で `crypto.subtle` を使用するが、React Native に�
 
 ```ts
 // polyfills.ts (アプリのエントリポイントより前に import する)
-import { install } from "react-native-quick-crypto";
+import QuickCrypto, { install } from "react-native-quick-crypto";
+
 install();
+// oauth4webapi は内部で `key instanceof CryptoKey` を使うが、install() は
+// globalThis.crypto しか設定しないため globalThis.CryptoKey が未定義のまま残る。
+// Hermes で "Property CryptoKey does not exist" になるため手動で登録する。
+(globalThis as { CryptoKey?: unknown }).CryptoKey = QuickCrypto.CryptoKey;
 ```
 
 ```ts
@@ -72,7 +88,7 @@ const customFetch: typeof globalThis.fetch = async (input, init) => {
 
 // DPoP 鍵ペアの永続化実装 (サンプルは AsyncStorage、本番は expo-secure-store 等に差し替え)
 const keyStore: DPoPKeyStore = {
-  /* load / save / clear を実装する。examples/react-native/src/lib/dpop-key-store.ts を参照 */
+  /* load / save / clear を実装する（後述の「DPoP」セクション参照） */
 };
 
 const client = createClient({
@@ -113,7 +129,7 @@ interface ClientConfig {
 
 ```ts
 interface AuthorizeOptions {
-  scopes?: string[]; // デフォルト: ["openid"]
+  scopes?: readonly string[]; // 省略時のみ ["openid"]（空配列を渡すとスコープ無し）
   authorizationDetails?: AuthorizationDetailInput[]; // RAR (RFC 9396)
   acrValues?: string[];
   prompt?: string[];
@@ -246,7 +262,36 @@ const logout = async () => {
 };
 ```
 
-**参照実装**: `examples/react-native/src/lib/dpop-key-store.ts` に AsyncStorage ベースの実装がある。ただし AsyncStorage は平文保存のため、本番では Secure Store 系に差し替えること。
+**実装例 (React Native / expo-secure-store)**: `CryptoKeyPair` はそのまま保存できないため JWK に変換して永続化する。秘密鍵は復元時に `extractable: false` で取り込み、再エクスポートを防ぐ。`AsyncStorage` のような平文保存は本番では避けること。
+
+```ts
+import type { DPoPKeyStore } from "@pocketsign/klon-sdk";
+import * as SecureStore from "expo-secure-store";
+
+const STORAGE_KEY = "klon.dpop.keyPair";
+const EC_P256 = { name: "ECDSA", namedCurve: "P-256" } as const;
+
+const keyStore: DPoPKeyStore = {
+  load: async () => {
+    const raw = await SecureStore.getItemAsync(STORAGE_KEY);
+    if (!raw) return null;
+    const { privateJwk, publicJwk } = JSON.parse(raw);
+    const privateKey = await crypto.subtle.importKey("jwk", privateJwk, EC_P256, false, ["sign"]);
+    const publicKey = await crypto.subtle.importKey("jwk", publicJwk, EC_P256, true, ["verify"]);
+    return { privateKey, publicKey };
+  },
+  save: async (keyPair) => {
+    const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+    const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify({ privateJwk, publicJwk }));
+  },
+  clear: async () => {
+    await SecureStore.deleteItemAsync(STORAGE_KEY);
+  },
+};
+```
+
+Web では IndexedDB 等に `CryptoKey` を直接保存する実装も可能。
 
 ### IDTokenClaims
 
