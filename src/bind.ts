@@ -19,9 +19,15 @@ type BindNativeSessionOptions = {
   dpopHandle?: oauth.DPoPHandle;
 };
 
+/**
+ * `OIDCClient.bindNativeSession()` がサーバーエラー応答を受けた際に投げられるエラー。
+ */
 export class BindNativeSessionError extends Error {
+  /** HTTP ステータスコード。 */
   readonly status: number;
+  /** サーバーが返した error コード。 */
   readonly error: string;
+  /** サーバーが返した詳細理由 (存在する場合)。 */
   readonly reason?: string;
 
   constructor(status: number, error: string = DEFAULT_BIND_NATIVE_SESSION_ERROR, reason?: string) {
