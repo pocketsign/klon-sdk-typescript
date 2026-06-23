@@ -4,21 +4,44 @@
  * @see https://datatracker.ietf.org/doc/html/rfc9396
  */
 
+/**
+ * Registry リソースに対して要求できる操作。
+ *
+ * - `read`: 値の取得
+ * - `write`: 値の更新・削除
+ * - `invoke`: 実行リソースの呼び出し
+ */
 export type ResourceAction = "read" | "write" | "invoke";
 
+/**
+ * 認可リクエストの `authorization_details` に含まれる 1 件分の要求 (RFC 9396)。
+ *
+ * `type` は現状 `urn:klon:resource_access` (Registry リソースへの権限要求) のみ。
+ * `scope` と `authorization_details` を併用した場合、要求は和集合となり、
+ * 同じ意味の要求は重複しない 1 つに正規化される。
+ */
 export interface AuthorizationDetail {
+  /** 認可詳細の型。KLON では常に `"urn:klon:resource_access"`。 */
   type: "urn:klon:resource_access";
+  /** 対象リソースの Registry リソース定義 ID またはエイリアスの配列。 */
   identifiers: string[];
+  /** 各リソースに対して要求する操作 (read / write / invoke) の配列。 */
   actions: ResourceAction[];
+  /** true のとき、ユーザーが拒否すると認可フロー自体を継続できない必須要求になる。 */
   required?: boolean;
+  /** true のとき、リソース値が未登録なら認可フロー内で値入力・登録を促す。 */
   prefill?: boolean;
 }
 
-/** `buildAuthorizationDetails()` の入力型。`type` は自動補完される。 */
+/** {@link buildAuthorizationDetails} の入力型。`type` は自動補完される。 */
 export interface AuthorizationDetailInput {
+  /** 対象リソースの Registry リソース定義 ID またはエイリアスの配列。 */
   identifiers: string[];
+  /** 各リソースに対して要求する操作 (read / write / invoke) の配列。 */
   actions: ResourceAction[];
+  /** true のとき、ユーザーが拒否すると認可フロー自体を継続できない必須要求になる。 */
   required?: boolean;
+  /** true のとき、リソース値が未登録なら認可フロー内で値入力・登録を促す。 */
   prefill?: boolean;
 }
 
@@ -48,6 +71,12 @@ function isResourceAction(value: unknown): value is ResourceAction {
   return value === "read" || value === "write" || value === "invoke";
 }
 
+/**
+ * 値が {@link AuthorizationDetail} の形式に合致するか判定する型ガード。
+ *
+ * @param value 検査対象の値
+ * @returns 値が有効な {@link AuthorizationDetail} なら `true`
+ */
 export function isAuthorizationDetail(value: unknown): value is AuthorizationDetail {
   if (typeof value !== "object" || value === null) {
     return false;

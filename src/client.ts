@@ -42,6 +42,17 @@ type InternalAuthorizeOptions = AuthorizeOptions & {
   klonAuthEntry?: "email";
 };
 
+/**
+ * KLON OIDC クライアント。
+ *
+ * oauth4webapi をベースに、KLON 固有のパラメータ構築 (認可詳細・ACR・prompt 等) と
+ * DPoP バインディングを内包する。通常は {@link createClient} 経由で生成する。
+ *
+ * 認可フローは PKCE (`code_challenge_method=S256` のみ) を必須とし、
+ * トークン取得は `authorization_code` / `refresh_token` の 2 種の grant_type を扱う。
+ * issuer は環境ごとに異なるため、固定ホスト名を前提にせず {@link ClientConfig.issuer}
+ * で渡すこと。
+ */
 export class OIDCClient {
   private config: ClientConfig;
   private discoveryPromise: Promise<oauth.AuthorizationServer> | null = null;
@@ -78,10 +89,16 @@ export class OIDCClient {
    *
    * 返された `session` はコールバック処理に必要なのでセッションストレージに保存すること。
    * `JSON.stringify(session)` / `JSON.parse()` でシリアライズ可能。
+   *
+   * @param options 認可リクエストのオプション (スコープ・認可詳細・ACR・prompt 等)
+   * @returns リダイレクト先の `url` と、コールバック処理で使う `session`
    */
-  async createAuthorizationURL(
-    options: AuthorizeOptions = {},
-  ): Promise<{ url: URL; session: AuthorizationSession }> {
+  async createAuthorizationURL(options: AuthorizeOptions = {}): Promise<{
+    /** ユーザーをリダイレクトする認可エンドポイントの URL。 */
+    url: URL;
+    /** コールバック処理に渡す認可フロー状態。永続化が必要。 */
+    session: AuthorizationSession;
+  }> {
     const as = await this.discover();
 
     const codeVerifier = oauth.generateRandomCodeVerifier();
@@ -324,6 +341,12 @@ export class OIDCClient {
   }
 }
 
+/**
+ * {@link ClientConfig} から {@link OIDCClient} を生成する。
+ *
+ * @param config クライアント設定 (issuer / clientId / redirectUri 等)
+ * @returns 初期化済みの {@link OIDCClient}
+ */
 export function createClient(config: ClientConfig): OIDCClient {
   return new OIDCClient(config);
 }
@@ -347,6 +370,9 @@ function toTokenSet(result: oauth.TokenEndpointResponse): TokenSet {
 
 function toIDTokenClaims(raw: oauth.IDToken): IDTokenClaims {
   return {
+    // 型に定義されていないクレームも実行時のオブジェクトに保持し、
+    // IDTokenClaims を拡張した型からアクセスできるようにする。
+    ...raw,
     iss: raw.iss,
     sub: raw.sub,
     aud: raw.aud,
@@ -357,7 +383,6 @@ function toIDTokenClaims(raw: oauth.IDToken): IDTokenClaims {
     acr: raw.acr as string,
     amr: raw.amr as string[],
     sid: raw.sid as string | undefined,
-    uid: raw.uid as string | undefined,
     jpki_verified: raw.jpki_verified as boolean,
     name: raw.name as string | undefined,
     gender: raw.gender as string | undefined,

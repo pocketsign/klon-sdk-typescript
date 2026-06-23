@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["jsdoc"],
+  "rules": {
+    "jsdoc/check-tag-names": ["error", { "definedTags": ["remarks", "internal"] }],
+    "jsdoc/check-property-names": "error",
+    "jsdoc/no-defaults": "warn",
+    "jsdoc/implements-on-classes": "warn"
+  }
+}

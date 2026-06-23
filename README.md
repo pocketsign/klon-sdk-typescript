@@ -6,7 +6,7 @@ KLON IdP と連携するための TypeScript SDK。[oauth4webapi](https://github
 
 `@pocketsign` スコープのパッケージは専用レジストリで配布しています。プロジェクトのルートに `.npmrc` を作成し、レジストリと SDK 取得用トークンを設定してください。
 
-```plaintext
+```ini
 @pocketsign:registry=https://repo.platform.p8n.app
 //repo.platform.p8n.app/:_authToken=<YOUR_SDK_TOKEN>
 ```
@@ -309,7 +309,6 @@ Web では IndexedDB 等に `CryptoKey` を直接保存する実装も可能。
 | `acr`                   | `string`             | 認証コンテキストクラス | 常に存在       |
 | `amr`                   | `string[]`           | 認証方法               | 常に存在       |
 | `sid`                   | `string?`            | セッション ID          | セッション時   |
-| `uid`                   | `string?`            | IdP ユーザー ID        | RP 設定時      |
 | `jpki_verified`         | `boolean`            | JPKI 紐づけ状態        | 常に存在       |
 | `name`                  | `string?`            | 氏名                   | scope: profile |
 | `gender`                | `string?`            | 性別                   | scope: profile |
@@ -395,7 +394,7 @@ Resources.EMAIL_ADDRESS; // "klon/email_address"
 // ... 他多数
 ```
 
-カテゴリ: `SIGNING_*` (署名用電子証明書), `TICKET_*` (券面事項入力補助AP), `MANUAL_*` (手入力), `MERGED_*` (最も信頼性が高い値), `EMAIL_ADDRESS`, `PHONE_NUMBER`, `FACE_IMAGE`, `CHECK_JPKI_*` (証明書現況確認)
+カテゴリ: `SIGNING_*` (署名用電子証明書), `TICKET_*` (券面事項入力補助AP), `MANUAL_*` (手入力), `MERGED_*` (最も信頼性が高い値), `EMAIL_ADDRESS`, `PHONE_NUMBER`, `FACE_IMAGE`, 実行リソース (`PUSH_NOTIFICATION`, `ACCESS_CAMERA`, `GET_CURRENT_POSITION`, `GET_HIGH_ACCURACY_CURRENT_POSITION`, `ACCESS_FITNESS_DATA`), `CHECK_JPKI_*` (証明書現況確認)
 
 ### ResourceAction
 

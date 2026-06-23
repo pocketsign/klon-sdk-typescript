@@ -1,5 +1,11 @@
 /**
- * DPoP (RFC 9449) 対応のための KeyStore 抽象と鍵管理ヘルパ。
+ * DPoP (Demonstrating Proof of Possession, RFC 9449) 対応のための
+ * KeyStore 抽象と鍵管理ヘルパ。
+ *
+ * DPoP はアクセストークンを鍵ペアにバインドし、盗まれたアクセストークンの
+ * 転用リスクを下げる。proof JWT はリクエストごとに生成され、署名アルゴリズムは
+ * ES256 のみ対応。token_type=DPoP のトークンには `cnf.jkt` (公開鍵の JWK
+ * Thumbprint) が含まれる。
  *
  * oauth4webapi の `DPoP()` は `CryptoKeyPair` を直接受け取る API のため、
  * SDK はプラットフォーム非依存の保存/復元インターフェースだけを提供する。
@@ -39,11 +45,15 @@ export interface DPoPKeyStore {
 
 /** `ClientConfig.dpop` に渡す設定 */
 export interface DPoPOptions {
+  /** DPoP 署名鍵ペアの永続化を担う {@link DPoPKeyStore}。 */
   keyStore: DPoPKeyStore;
 }
 
+/** {@link createDPoPFetch} に渡すオプション。 */
 export interface CreateDPoPFetchOptions {
+  /** DPoP 署名鍵ペアの永続化を担う {@link DPoPKeyStore}。 */
   keyStore: DPoPKeyStore;
+  /** リクエストごとに最新のアクセストークンを返す関数。 */
   getAccessToken(): Promise<string>;
   /** React Native / Expo では `expo/fetch` などを渡す */
   fetch?: typeof globalThis.fetch;
@@ -58,7 +68,14 @@ export interface CreateDPoPFetchOptions {
   allowInsecureRequests?: boolean;
 }
 
+/**
+ * DPoP proof を自動付与する fetch 関数。
+ *
+ * 標準の `fetch` シグネチャに加えて、鍵をローテーションするための
+ * `resetDPoPKey()` メソッドを持つ。
+ */
 export type DPoPFetch = typeof globalThis.fetch & {
+  /** DPoP 鍵ペアを破棄し、KeyStore と内部キャッシュをクリアする。 */
   resetDPoPKey(): Promise<void>;
 };
 
@@ -118,6 +135,14 @@ export function resetDPoPHandle(keyStore: DPoPKeyStore): void {
 /**
  * KLON access token を使う protected resource request に DPoP proof を自動付与する
  * fetch wrapper を作成する。
+ *
+ * リクエストごとに proof JWT を生成し、その `ath` がアクセストークンのハッシュと
+ * 一致するように設定する。`Authorization` ヘッダは Bearer ではなく `DPoP <token>` を
+ * 用いる。サーバーが nonce を要求した場合、リクエスト body が再送可能なときは
+ * 自動でリトライする。
+ *
+ * @param options KeyStore・アクセストークン取得関数・カスタム fetch 等のオプション
+ * @returns DPoP proof を自動付与する {@link DPoPFetch}
  */
 export function createDPoPFetch(options: CreateDPoPFetchOptions): DPoPFetch {
   const baseFetch = options.fetch ?? globalThis.fetch;
