@@ -165,6 +165,27 @@ const { bindCompleteUrl } = await client.bindNativeSession(bindId, accessToken);
 // bindCompleteUrl を WebView にロードしてバインド完了させる
 ```
 
+失敗時は `BindNativeSessionError` が投げられ、`status` に HTTP ステータス、`error` にエラーコード、`reason` に詳細理由が格納される。既知の `reason` は次のとおり。
+
+```text
+request_body_invalid
+bind_id_missing
+bind_id_invalid
+access_token_invalid
+dpop_proof_invalid
+native_scope_missing
+bind_session_not_found
+bind_session_expired
+bind_session_already_bound
+bind_session_used
+bind_session_not_pending
+user_session_unavailable
+bind_session_failed
+unexpected_error
+```
+
+将来追加される未知の `reason` も文字列として保持されるため、分岐では `default` も処理すること。
+
 #### `createDPoPFetch(options): DPoPFetch`
 
 Registry API や IdP の protected API など、KLON access token が必要な API 呼び出しに DPoP proof を自動付与する fetch wrapper を作成する。

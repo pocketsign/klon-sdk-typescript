@@ -6,9 +6,27 @@ export const NATIVE_BIND_PATH = "/api/native/v1/bind";
 
 const DEFAULT_BIND_NATIVE_SESSION_ERROR = "Session binding failed";
 
+/** Native bind 失敗時にサーバーが返す詳細理由。将来追加される未知の値も含む。 */
+export type BindNativeSessionErrorReason =
+  | "request_body_invalid"
+  | "bind_id_missing"
+  | "bind_id_invalid"
+  | "access_token_invalid"
+  | "dpop_proof_invalid"
+  | "native_scope_missing"
+  | "bind_session_not_found"
+  | "bind_session_expired"
+  | "bind_session_already_bound"
+  | "bind_session_used"
+  | "bind_session_not_pending"
+  | "user_session_unavailable"
+  | "bind_session_failed"
+  | "unexpected_error"
+  | (string & {});
+
 type BindNativeSessionErrorBody = {
   error: string;
-  reason?: string;
+  reason?: BindNativeSessionErrorReason;
 };
 
 type BindNativeSessionOptions = {
@@ -28,9 +46,13 @@ export class BindNativeSessionError extends Error {
   /** サーバーが返した error コード。 */
   readonly error: string;
   /** サーバーが返した詳細理由 (存在する場合)。 */
-  readonly reason?: string;
+  readonly reason?: BindNativeSessionErrorReason;
 
-  constructor(status: number, error: string = DEFAULT_BIND_NATIVE_SESSION_ERROR, reason?: string) {
+  constructor(
+    status: number,
+    error: string = DEFAULT_BIND_NATIVE_SESSION_ERROR,
+    reason?: BindNativeSessionErrorReason,
+  ) {
     const detail = error === DEFAULT_BIND_NATIVE_SESSION_ERROR ? "" : `: ${error}`;
     const reasonDetail = reason ? ` [${reason}]` : "";
     super(`${DEFAULT_BIND_NATIVE_SESSION_ERROR} (HTTP ${status})${detail}${reasonDetail}`);
