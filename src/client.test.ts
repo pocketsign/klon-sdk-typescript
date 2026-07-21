@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BindNativeSessionError } from "./bind";
 import { createClient } from "./client";
 import type { DPoPKeyStore } from "./dpop";
+import type { BindNativeSessionErrorReason } from "./index";
 import type { AuthorizeOptions } from "./types";
 
 const ISSUER = "https://idp.example.com";
@@ -637,36 +638,39 @@ describe("bindNativeSession", () => {
     expect(error.reason).toBeUndefined();
   });
 
-  it("HTTP エラーの reason を BindNativeSessionError に保持する", async () => {
-    const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = urlOf(input);
-      if (url.endsWith(NATIVE_BIND_PATH)) {
-        return new Response(
-          JSON.stringify({ error: "bind failed", reason: "bind_session_expired" }),
-          {
+  it.each([
+    ["既知", "bind_session_expired"],
+    ["将来追加される未知", "future_reason"],
+  ] satisfies [string, BindNativeSessionErrorReason][])(
+    "HTTP エラーの%s reason を BindNativeSessionError に保持する",
+    async (_kind, reason) => {
+      const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = urlOf(input);
+        if (url.endsWith(NATIVE_BIND_PATH)) {
+          return new Response(JSON.stringify({ error: "bind failed", reason }), {
             status: 400,
             headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    });
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
 
-    const client = createClient({
-      issuer: ISSUER,
-      clientId: CLIENT_ID,
-      redirectUri: REDIRECT_URI,
-      customFetch: mockFetch as unknown as typeof globalThis.fetch,
-    });
+      const client = createClient({
+        issuer: ISSUER,
+        clientId: CLIENT_ID,
+        redirectUri: REDIRECT_URI,
+        customFetch: mockFetch as unknown as typeof globalThis.fetch,
+      });
 
-    const error = await expectBindNativeSessionError(
-      client.bindNativeSession("bind-123", "bad-token"),
-    );
-    expect(error.message).toMatch(/HTTP 400/);
-    expect(error.status).toBe(400);
-    expect(error.error).toBe("bind failed");
-    expect(error.reason).toBe("bind_session_expired");
-  });
+      const error = await expectBindNativeSessionError(
+        client.bindNativeSession("bind-123", "bad-token"),
+      );
+      expect(error.message).toMatch(/HTTP 400/);
+      expect(error.status).toBe(400);
+      expect(error.error).toBe("bind failed");
+      expect(error.reason).toBe(reason);
+    },
+  );
 
   it("HTTP エラー body が JSON でなくても status 付き BindNativeSessionError を投げる", async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL) => {

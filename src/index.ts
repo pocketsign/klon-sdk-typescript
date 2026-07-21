@@ -1,6 +1,7 @@
 // Client
 export { OIDCClient, createClient } from "./client";
 export { BindNativeSessionError } from "./bind";
+export type { BindNativeSessionErrorReason } from "./bind";
 
 // Authorization Details
 export {
