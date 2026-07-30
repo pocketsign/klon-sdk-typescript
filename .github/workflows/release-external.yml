@@ -72,3 +72,28 @@ jobs:
 
       - name: Publish package
         run: pnpm publish --no-git-checks
+
+      - name: Generate token
+        id: generate-token
+        if: matrix.environment == 'prod'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CI_GITHUB_APP_ID }}
+          private-key: ${{ secrets.CI_GITHUB_APP_PKEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: docs
+
+      - name: Request docs update
+        # docs リポジトリで SDK リファレンスとリリースノートを再生成する PR を作らせる。
+        # dev/prod の両方で走らせると二重に通知するため、prod だけにしている。
+        if: matrix.environment == 'prod'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#v}"
+          gh api "repos/${{ github.repository_owner }}/docs/dispatches" \
+            -f event_type=sdk-released \
+            -f 'client_payload[sdk]=klon-sdk-typescript' \
+            -f "client_payload[version]=${VERSION}"
