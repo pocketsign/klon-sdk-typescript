@@ -446,3 +446,13 @@ import { GrantManagementActions } from "@pocketsign/klon-sdk";
 - Node.js >= 18 (Web Crypto API が必要)
 - ブラウザ (Web Crypto API 対応)
 - React Native (Expo, `customFetch` でラッパーが必要)
+
+## リリースノートの書き方
+
+リリースノートの正本は [`CHANGELOG.md`](./CHANGELOG.md) です。
+[docs リポジトリ](https://github.com/pocketsign/docs)がこのファイルから KLON SDK リリースノートのページを生成するため、社外開発者が読む前提で書いてください。
+
+- 公開APIを変更するPRでは、同じPRで `## Unreleased` に項目を追記してください。あとから書くと漏れます。
+- 見出しは `### 破壊的変更` / `### 新機能` / `### 非推奨` / `### 修正` / `### その他` を使い、該当がないものは省略します。
+- 書くのは「利用者から見て何が変わったか」と「何をすればよいか」です。内部リファクタリングやパッケージ更新は書きません。公開APIに影響がない版は「公開APIの変更はありません。」の1行にします。
+- GitHub Release を作成して社外リリースするときに、`## Unreleased` を `## <version> （YYYY/MM/DD）` へ書き換え、新しい空の `## Unreleased` を追加してください。リリース本文にも同じ内容を貼ってください。
