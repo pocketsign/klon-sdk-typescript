@@ -2,7 +2,7 @@
   "name": "@pocketsign/klon-sdk",
   "version": "0.0.0",
   "description": "KLON SDK",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/pocketsign/klon-sdk-typescript.git"
