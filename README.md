@@ -446,3 +446,9 @@ import { GrantManagementActions } from "@pocketsign/klon-sdk";
 - Node.js >= 18 (Web Crypto API が必要)
 - ブラウザ (Web Crypto API 対応)
 - React Native (Expo, `customFetch` でラッパーが必要)
+
+## ライセンス
+
+[Apache License 2.0](LICENSE)
+
+Copyright 2026 PocketSign, Inc.
