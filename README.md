@@ -452,3 +452,29 @@ import { GrantManagementActions } from "@pocketsign/klon-sdk";
 [Apache License 2.0](LICENSE)
 
 Copyright 2026 PocketSign, Inc.
+
+## private_key_jwt
+
+サーバー側の Confidential Client では、`clientSecret` の代わりに `clientPrivateKey` を指定できます。
+対応する公開鍵を `alg: "ES256"`、`use: "sig"`、同じ `kid` を持つ JWKS として公開し、クライアントの `jwks_uri` に登録してください。秘密鍵をブラウザー・ネイティブアプリに配布したり、公開 JWKS に含めたりしないでください。
+
+```typescript
+import { createClient } from "@pocketsign/klon-sdk";
+
+// privateJwk は安全な保管先から読み込んだ EC / P-256 の秘密 JWK。
+const key = await crypto.subtle.importKey(
+  "jwk",
+  privateJwk,
+  { name: "ECDSA", namedCurve: "P-256" },
+  false,
+  ["sign"],
+);
+const client = createClient({
+  issuer: "https://id.mock.klon.you",
+  clientId: "your-client-id",
+  redirectUri: "http://localhost:8080/callback",
+  clientPrivateKey: { key, kid: "your-key-id" },
+});
+```
+
+認可コード交換・リフレッシュ・PAR のたびに、issuer を `aud` とする有効期間60秒の ES256 JWT を生成します。DPoP とも併用できます。`clientSecret` との同時指定や不正な鍵設定は `createClient` 時にエラーになります。

@@ -58,6 +58,21 @@ export class OIDCClient {
   private discoveryPromise: Promise<oauth.AuthorizationServer> | null = null;
 
   constructor(config: ClientConfig) {
+    if (config.clientPrivateKey) {
+      if (config.clientSecret !== undefined) {
+        throw new Error("clientSecret and clientPrivateKey cannot be configured together");
+      }
+      const { key, kid } = config.clientPrivateKey;
+      if (
+        key.type !== "private" ||
+        key.algorithm.name !== "ECDSA" ||
+        (key.algorithm as EcKeyAlgorithm).namedCurve !== "P-256" ||
+        !key.usages.includes("sign") ||
+        !kid.trim()
+      ) {
+        throw new Error("clientPrivateKey requires an ECDSA P-256 signing key and a non-empty kid");
+      }
+    }
     this.config = config;
   }
 
@@ -320,6 +335,9 @@ export class OIDCClient {
   }
 
   private getClientAuth(): oauth.ClientAuth {
+    if (this.config.clientPrivateKey) {
+      return oauth.PrivateKeyJwt(this.config.clientPrivateKey);
+    }
     if (this.config.clientSecret) {
       return oauth.ClientSecretPost(this.config.clientSecret);
     }

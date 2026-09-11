@@ -14,9 +14,19 @@ export interface ClientConfig {
   clientId: string;
   /**
    * Confidential Client の場合に指定する。
-   * 省略時は Public Client (SPA / ネイティブ向け) として扱われる。
+   * clientPrivateKey と同時には指定できない。両方省略時は Public Client として扱われる。
    */
   clientSecret?: string;
+  /**
+   * private_key_jwt 用の ECDSA P-256 秘密鍵と、登録した公開 JWKS の kid。
+   * サーバー側でのみ使用する。各リクエストで有効期間60秒の ES256 JWT を生成する。
+   */
+  clientPrivateKey?: {
+    /** ES256 の署名に使用する ECDSA P-256 秘密鍵。 */
+    key: CryptoKey;
+    /** 登録した公開 JWKS 内の対応する公開鍵の kid。 */
+    kid: string;
+  };
   /** 認可コールバックを受け取るリダイレクト URI。 */
   redirectUri: string;
   /** React Native 環境では `expo/fetch` を渡す */
