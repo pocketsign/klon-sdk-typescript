@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- `clientPrivateKey` による private_key_jwt（ES256）認証を追加しました。認可コード交換・トークン更新・PAR に対応します。
+
 ### 新機能
 
 - Native bind の失敗理由を表す型 `BindNativeSessionErrorReason` を公開しました。`BindNativeSessionError` の `reason` プロパティの型がこの型になり、サーバーが返す理由を補完付きで分岐できます。将来追加される未知の値も受け付けます。

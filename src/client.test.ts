@@ -133,6 +133,116 @@ function tamperJWTSignature(rawJWT: string): string {
   return `${parts[0]}.${parts[1]}.${replacement}${parts[2].slice(1)}`;
 }
 
+describe("private_key_jwt", () => {
+  it("signs fresh assertions for PAR, code exchange, and repeated refresh", async () => {
+    const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ]);
+    const signer = await createIDTokenSigner();
+    const ids = new Set<string>();
+    const paths: string[] = [];
+    let nonce = "";
+    const customFetch: typeof fetch = async (input, init) => {
+      const url = urlOf(input);
+      if (url.includes("/.well-known/"))
+        return discoveryResponse({
+          jwks_uri: `${ISSUER}/jwks`,
+          id_token_signing_alg_values_supported: ["ES256"],
+        });
+      if (url.endsWith("/jwks")) return Response.json(signer.jwks);
+      const body = new URLSearchParams(init?.body as URLSearchParams);
+      expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+      expect(body.has("client_secret")).toBe(false);
+      expect(body.get("client_id")).toBe(CLIENT_ID);
+      expect(body.get("client_assertion_type")).toBe(
+        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+      );
+      const [header, payload, signature] = body.get("client_assertion")!.split(".") as [
+        string,
+        string,
+        string,
+      ];
+      const decode = (value: string) => atob(value.replaceAll("-", "+").replaceAll("_", "/"));
+      expect(JSON.parse(decode(header))).toMatchObject({ alg: "ES256", kid: "client-key" });
+      const claims = JSON.parse(decode(payload));
+      expect(claims).toMatchObject({ iss: CLIENT_ID, sub: CLIENT_ID, aud: ISSUER });
+      expect(claims.exp - claims.iat).toBe(60);
+      expect(claims.exp).toBeGreaterThan(Date.now() / 1000);
+      expect(claims.jti).toBeTruthy();
+      expect(ids.has(claims.jti)).toBe(false);
+      ids.add(claims.jti);
+      expect(
+        await crypto.subtle.verify(
+          { name: "ECDSA", hash: "SHA-256" },
+          keys.publicKey,
+          Uint8Array.from(decode(signature), (char) => char.charCodeAt(0)),
+          new TextEncoder().encode(`${header}.${payload}`),
+        ),
+      ).toBe(true);
+      paths.push(new URL(url).pathname);
+      if (url.endsWith("/par")) {
+        nonce = body.get("nonce")!;
+        return parResponse();
+      }
+      const idToken = await signer.sign({
+        iss: ISSUER,
+        sub: "user",
+        aud: CLIENT_ID,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 300,
+        nonce,
+      });
+      return Response.json({
+        access_token: "access",
+        token_type: "Bearer",
+        refresh_token: "refresh",
+        id_token: idToken,
+      });
+    };
+    const client = createClient({
+      issuer: ISSUER,
+      clientId: CLIENT_ID,
+      redirectUri: REDIRECT_URI,
+      clientPrivateKey: { key: keys.privateKey, kid: "client-key" },
+      customFetch,
+    });
+    const { session } = await client.createAuthorizationURL({ usePAR: true });
+    expect((await client.exchangeCode("code", session.state, session)).accessToken).toBe("access");
+    for (let i = 0; i < 2; i++) {
+      expect((await client.refreshToken("refresh")).accessToken).toBe("access");
+    }
+    expect(paths).toEqual(["/par", "/token", "/token", "/token"]);
+  });
+
+  it("rejects conflicting credentials, public keys, unsupported curves, and empty kid", async () => {
+    const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ]);
+    const wrongCurve = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-384" },
+      true,
+      ["sign", "verify"],
+    );
+    const base = { issuer: ISSUER, clientId: CLIENT_ID, redirectUri: REDIRECT_URI };
+    expect(() =>
+      createClient({
+        ...base,
+        clientSecret: "secret",
+        clientPrivateKey: { key: keys.privateKey, kid: "key" },
+      }),
+    ).toThrow("cannot be configured together");
+    for (const clientPrivateKey of [
+      { key: keys.publicKey, kid: "key" },
+      { key: wrongCurve.privateKey, kid: "key" },
+      { key: keys.privateKey, kid: " " },
+    ]) {
+      expect(() => createClient({ ...base, clientPrivateKey })).toThrow("ECDSA P-256");
+    }
+  });
+});
+
 describe("createClient (DPoP 統合)", () => {
   it("dpop 未指定時は PAR リクエストに DPoP ヘッダも dpop_jkt も付与しない", async () => {
     const calls: { url: string; init: RequestInit | undefined }[] = [];
