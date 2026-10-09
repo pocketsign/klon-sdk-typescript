@@ -33,6 +33,9 @@
     "test:watch": "vitest",
     "docs": "typedoc"
   },
+  "dependencies": {
+    "@noble/curves": "^2.4.0"
+  },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260527.2",
     "oauth4webapi": "^3.8.6",

@@ -1,5 +1,6 @@
 // Client
 export { OIDCClient, createClient } from "./client";
+export type { ES256Signer } from "./client-assertion";
 export { BindNativeSessionError } from "./bind";
 export type { BindNativeSessionErrorReason } from "./bind";
 

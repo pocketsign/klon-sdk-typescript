@@ -134,85 +134,143 @@ function tamperJWTSignature(rawJWT: string): string {
 }
 
 describe("private_key_jwt", () => {
-  it("signs fresh assertions for PAR, code exchange, and repeated refresh", async () => {
-    const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
-      "sign",
-      "verify",
-    ]);
-    const signer = await createIDTokenSigner();
-    const ids = new Set<string>();
-    const paths: string[] = [];
-    let nonce = "";
-    const customFetch: typeof fetch = async (input, init) => {
-      const url = urlOf(input);
-      if (url.includes("/.well-known/"))
-        return discoveryResponse({
-          jwks_uri: `${ISSUER}/jwks`,
-          id_token_signing_alg_values_supported: ["ES256"],
+  it.each(["local", "external-raw", "external-der"] as const)(
+    "%s signs fresh assertions for PAR, code exchange, and repeated refresh",
+    async (mode) => {
+      const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+        "sign",
+        "verify",
+      ]);
+      const externalSign = vi.fn(async (input: Uint8Array) => {
+        const signature = new Uint8Array(
+          await crypto.subtle.sign(
+            { name: "ECDSA", hash: "SHA-256" },
+            keys.privateKey,
+            new Uint8Array(input),
+          ),
+        );
+        if (mode !== "external-der") return signature;
+        const integer = (bytes: Uint8Array): number[] => {
+          let start = 0;
+          while (start < bytes.length - 1 && bytes[start] === 0) start++;
+          const value = Array.from(bytes.subarray(start));
+          if (value[0]! >= 0x80) value.unshift(0);
+          return [2, value.length, ...value];
+        };
+        const components = [
+          ...integer(signature.subarray(0, 32)),
+          ...integer(signature.subarray(32)),
+        ];
+        return new Uint8Array([0x30, components.length, ...components]);
+      });
+      const signer = await createIDTokenSigner();
+      const ids = new Set<string>();
+      const paths: string[] = [];
+      let nonce = "";
+      const customFetch: typeof fetch = async (input, init) => {
+        const url = urlOf(input);
+        if (url.includes("/.well-known/"))
+          return discoveryResponse({
+            jwks_uri: `${ISSUER}/jwks`,
+            id_token_signing_alg_values_supported: ["ES256"],
+          });
+        if (url.endsWith("/jwks")) return Response.json(signer.jwks);
+        const body = new URLSearchParams(init?.body as URLSearchParams);
+        expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+        expect(body.has("client_secret")).toBe(false);
+        expect(body.get("client_id")).toBe(CLIENT_ID);
+        expect(body.get("client_assertion_type")).toBe(
+          "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        );
+        const [header, payload, signature] = body.get("client_assertion")!.split(".") as [
+          string,
+          string,
+          string,
+        ];
+        const decode = (value: string) => atob(value.replaceAll("-", "+").replaceAll("_", "/"));
+        expect(JSON.parse(decode(header))).toMatchObject({ alg: "ES256", kid: "client-key" });
+        const claims = JSON.parse(decode(payload));
+        expect(claims).toMatchObject({ iss: CLIENT_ID, sub: CLIENT_ID, aud: ISSUER });
+        expect(claims.exp - claims.iat).toBe(60);
+        expect(claims.exp).toBeGreaterThan(Date.now() / 1000);
+        expect(claims.jti).toBeTruthy();
+        expect(ids.has(claims.jti)).toBe(false);
+        ids.add(claims.jti);
+        expect(
+          await crypto.subtle.verify(
+            { name: "ECDSA", hash: "SHA-256" },
+            keys.publicKey,
+            Uint8Array.from(decode(signature), (char) => char.charCodeAt(0)),
+            new TextEncoder().encode(`${header}.${payload}`),
+          ),
+        ).toBe(true);
+        paths.push(new URL(url).pathname);
+        if (url.endsWith("/par")) {
+          nonce = body.get("nonce")!;
+          return parResponse();
+        }
+        const idToken = await signer.sign({
+          iss: ISSUER,
+          sub: "user",
+          aud: CLIENT_ID,
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 300,
+          nonce,
         });
-      if (url.endsWith("/jwks")) return Response.json(signer.jwks);
-      const body = new URLSearchParams(init?.body as URLSearchParams);
-      expect(new Headers(init?.headers).has("Authorization")).toBe(false);
-      expect(body.has("client_secret")).toBe(false);
-      expect(body.get("client_id")).toBe(CLIENT_ID);
-      expect(body.get("client_assertion_type")).toBe(
-        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        return Response.json({
+          access_token: "access",
+          token_type: "Bearer",
+          refresh_token: "refresh",
+          id_token: idToken,
+        });
+      };
+      const client = createClient({
+        issuer: ISSUER,
+        clientId: CLIENT_ID,
+        redirectUri: REDIRECT_URI,
+        clientPrivateKey: {
+          key:
+            mode === "local"
+              ? keys.privateKey
+              : {
+                  sign: externalSign,
+                  signatureFormat: mode === "external-der" ? "der" : "ieee-p1363",
+                },
+          kid: "client-key",
+        },
+        customFetch,
+      });
+      const { session } = await client.createAuthorizationURL({ usePAR: true });
+      expect((await client.exchangeCode("code", session.state, session)).accessToken).toBe(
+        "access",
       );
-      const [header, payload, signature] = body.get("client_assertion")!.split(".") as [
-        string,
-        string,
-        string,
-      ];
-      const decode = (value: string) => atob(value.replaceAll("-", "+").replaceAll("_", "/"));
-      expect(JSON.parse(decode(header))).toMatchObject({ alg: "ES256", kid: "client-key" });
-      const claims = JSON.parse(decode(payload));
-      expect(claims).toMatchObject({ iss: CLIENT_ID, sub: CLIENT_ID, aud: ISSUER });
-      expect(claims.exp - claims.iat).toBe(60);
-      expect(claims.exp).toBeGreaterThan(Date.now() / 1000);
-      expect(claims.jti).toBeTruthy();
-      expect(ids.has(claims.jti)).toBe(false);
-      ids.add(claims.jti);
-      expect(
-        await crypto.subtle.verify(
-          { name: "ECDSA", hash: "SHA-256" },
-          keys.publicKey,
-          Uint8Array.from(decode(signature), (char) => char.charCodeAt(0)),
-          new TextEncoder().encode(`${header}.${payload}`),
-        ),
-      ).toBe(true);
-      paths.push(new URL(url).pathname);
-      if (url.endsWith("/par")) {
-        nonce = body.get("nonce")!;
-        return parResponse();
+      for (let i = 0; i < 2; i++) {
+        expect((await client.refreshToken("refresh")).accessToken).toBe("access");
       }
-      const idToken = await signer.sign({
-        iss: ISSUER,
-        sub: "user",
-        aud: CLIENT_ID,
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + 300,
-        nonce,
-      });
-      return Response.json({
-        access_token: "access",
-        token_type: "Bearer",
-        refresh_token: "refresh",
-        id_token: idToken,
-      });
-    };
+      expect(paths).toEqual(["/par", "/token", "/token", "/token"]);
+      expect(externalSign).toHaveBeenCalledTimes(mode === "local" ? 0 : 4);
+    },
+  );
+
+  it("propagates external signer errors without sending a token request", async () => {
+    const failure = new Error("KMS signing failed");
+    const customFetch = vi.fn(async () => discoveryResponse());
     const client = createClient({
       issuer: ISSUER,
       clientId: CLIENT_ID,
       redirectUri: REDIRECT_URI,
-      clientPrivateKey: { key: keys.privateKey, kid: "client-key" },
+      clientPrivateKey: {
+        key: {
+          sign: async () => {
+            throw failure;
+          },
+        },
+        kid: "key",
+      },
       customFetch,
     });
-    const { session } = await client.createAuthorizationURL({ usePAR: true });
-    expect((await client.exchangeCode("code", session.state, session)).accessToken).toBe("access");
-    for (let i = 0; i < 2; i++) {
-      expect((await client.refreshToken("refresh")).accessToken).toBe("access");
-    }
-    expect(paths).toEqual(["/par", "/token", "/token", "/token"]);
+    await expect(client.refreshToken("refresh")).rejects.toBe(failure);
+    expect(customFetch).toHaveBeenCalledTimes(1);
   });
 
   it("rejects conflicting credentials, public keys, unsupported curves, and empty kid", async () => {
@@ -539,7 +597,7 @@ describe("createClient (DPoP 統合)", () => {
     expect(calls.some((url) => url.endsWith("/jwks"))).toBe(true);
   });
 
-  it("maxAge 指定時は ID Token の auth_time を検証する", async () => {
+  it("maxAge を指定しても auth_time の経過時間では弾かない", async () => {
     const signer = await createIDTokenSigner();
     let expectedNonce = "";
     const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -582,12 +640,13 @@ describe("createClient (DPoP 統合)", () => {
       redirectUri: REDIRECT_URI,
       customFetch: mockFetch as unknown as typeof globalThis.fetch,
     });
-    const { session } = await client.createAuthorizationURL({ maxAge: 60 });
+    // max_age は IdP が認可リクエスト時に判定するパラメータで、RP 側の鮮度判定はアプリの方針に任せる
+    const { session } = await client.createAuthorizationURL({ maxAge: 0 });
     expectedNonce = session.nonce;
 
-    await expect(client.exchangeCode("code-123", session.state, session)).rejects.toThrow(
-      /too much time has elapsed/,
-    );
+    const tokenSet = await client.exchangeCode("code-123", session.state, session);
+
+    expect(tokenSet.idTokenClaims?.auth_time).toBeLessThan(Math.floor(Date.now() / 1000) - 100);
   });
 
   it("refreshToken は refresh response の ID Token 署名を検証する", async () => {
