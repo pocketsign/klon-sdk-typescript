@@ -2,6 +2,7 @@ import type { AuthorizationDetail, AuthorizationDetailInput } from "./authorizat
 import type { DPoPOptions } from "./dpop";
 import type { GrantManagementAction } from "./grant-management";
 import type { IDTokenClaims } from "./id-token-claims";
+import type { ES256Signer } from "./client-assertion";
 
 /** {@link createClient} に渡す KLON OIDC クライアントの設定。 */
 export interface ClientConfig {
@@ -18,12 +19,12 @@ export interface ClientConfig {
    */
   clientSecret?: string;
   /**
-   * private_key_jwt 用の ECDSA P-256 秘密鍵と、登録した公開 JWKS の kid。
+   * private_key_jwt 用の秘密鍵または外部署名器と、登録した公開 JWKS の kid。
    * サーバー側でのみ使用する。各リクエストで有効期間60秒の ES256 JWT を生成する。
    */
   clientPrivateKey?: {
-    /** ES256 の署名に使用する ECDSA P-256 秘密鍵。 */
-    key: CryptoKey;
+    /** ECDSA P-256 秘密鍵、または KMS 等の ES256 署名器。 */
+    key: CryptoKey | ES256Signer;
     /** 登録した公開 JWKS 内の対応する公開鍵の kid。 */
     kid: string;
   };
@@ -76,7 +77,10 @@ export interface AuthorizationSession {
   codeVerifier: string;
   /** 認可リクエスト時に使用したリダイレクト URI。 */
   redirectUri: string;
-  /** 認可リクエスト時に指定した max_age。コールバック時の auth_time 検証に使う。 */
+  /**
+   * @deprecated SDK はもう値を設定・参照しない。max_age は IdP が認可リクエスト時に判定し、
+   * SDK は auth_time の経過時間を検証しない。保存済みセッションとの型互換のために残している。
+   */
   maxAge?: number;
 }
 

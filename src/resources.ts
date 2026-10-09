@@ -185,6 +185,10 @@ export const Resources = {
   /** JPKI モバイル 利用者証明用電子証明書の失効確認 */
   CHECK_JPKI_MOBILE_USER_AUTHENTICATION_CERTIFICATE_REVOCATION:
     "klon/check_jpki_mobile_user_authentication_certificate_revocation",
+
+  // -- 居住継続性判定 --
+  /** サービスが指定する市区町村に住んでいるかどうかを、サービスが継続的に確認するための権限 */
+  CHECK_RESIDENCY_CONTINUITY: "klon/check_residency_continuity",
 } as const;
 
 /** {@link Resources} の値のいずれかを表すユニオン型。 */

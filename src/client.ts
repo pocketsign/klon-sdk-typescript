@@ -21,6 +21,7 @@
  */
 
 import * as oauth from "oauth4webapi";
+import { externalPrivateKeyJwt } from "./client-assertion";
 import type { AuthorizationDetail } from "./authorization-details";
 import { buildAuthorizationDetails, isAuthorizationDetail } from "./authorization-details";
 import { bindNativeSession as bindNativeSessionRequest } from "./bind";
@@ -63,13 +64,17 @@ export class OIDCClient {
         throw new Error("clientSecret and clientPrivateKey cannot be configured together");
       }
       const { key, kid } = config.clientPrivateKey;
-      if (
-        key.type !== "private" ||
-        key.algorithm.name !== "ECDSA" ||
-        (key.algorithm as EcKeyAlgorithm).namedCurve !== "P-256" ||
-        !key.usages.includes("sign") ||
-        !kid.trim()
-      ) {
+      const validKey =
+        "sign" in key
+          ? typeof key.sign === "function" &&
+            (key.signatureFormat === undefined ||
+              key.signatureFormat === "der" ||
+              key.signatureFormat === "ieee-p1363")
+          : key.type === "private" &&
+            key.algorithm.name === "ECDSA" &&
+            (key.algorithm as EcKeyAlgorithm).namedCurve === "P-256" &&
+            key.usages.includes("sign");
+      if (!validKey || !kid.trim()) {
         throw new Error("clientPrivateKey requires an ECDSA P-256 signing key and a non-empty kid");
       }
     }
@@ -206,7 +211,6 @@ export class OIDCClient {
         nonce,
         codeVerifier,
         redirectUri: this.config.redirectUri,
-        maxAge: options.maxAge,
       },
     };
   }
@@ -247,7 +251,6 @@ export class OIDCClient {
     const result = await oauth.processAuthorizationCodeResponse(as, client, response, {
       expectedNonce: session.nonce,
       requireIdToken: true,
-      maxAge: session.maxAge,
     });
 
     await oauth.validateApplicationLevelSignature(as, response, this.fetchOptions());
@@ -336,7 +339,8 @@ export class OIDCClient {
 
   private getClientAuth(): oauth.ClientAuth {
     if (this.config.clientPrivateKey) {
-      return oauth.PrivateKeyJwt(this.config.clientPrivateKey);
+      const { key, kid } = this.config.clientPrivateKey;
+      return "sign" in key ? externalPrivateKeyJwt(key, kid) : oauth.PrivateKeyJwt({ key, kid });
     }
     if (this.config.clientSecret) {
       return oauth.ClientSecretPost(this.config.clientSecret);

@@ -139,6 +139,8 @@ interface AuthorizeOptions {
 }
 ```
 
+`maxAge` は認可リクエストの `max_age` パラメータとして送られ、IdP が認可リクエストの時点で再認証が必要かを判定する。`exchangeCode` は `auth_time` の経過時間を検証しない。認証からの経過時間で制限したい場合は、`tokenSet.idTokenClaims.auth_time` を使ってアプリ側で判定すること。
+
 #### `client.exchangeCode(code, state, session): Promise<TokenSet>`
 
 認可コードをトークンに交換する。`code` と `state` はコールバック URL のクエリパラメータ。PKCE 検証、nonce 検証、ID トークン検証を行う。
@@ -415,7 +417,7 @@ Resources.EMAIL_ADDRESS; // "klon/email_address"
 // ... 他多数
 ```
 
-カテゴリ: `SIGNING_*` (署名用電子証明書), `TICKET_*` (券面事項入力補助AP), `MANUAL_*` (手入力), `MERGED_*` (最も信頼性が高い値), `EMAIL_ADDRESS`, `PHONE_NUMBER`, `FACE_IMAGE`, 実行リソース (`PUSH_NOTIFICATION`, `ACCESS_CAMERA`, `GET_CURRENT_POSITION`, `GET_HIGH_ACCURACY_CURRENT_POSITION`, `ACCESS_FITNESS_DATA`), `CHECK_JPKI_*` (証明書現況確認)
+カテゴリ: `SIGNING_*` (署名用電子証明書), `TICKET_*` (券面事項入力補助AP), `MANUAL_*` (手入力), `MERGED_*` (最も信頼性が高い値), `EMAIL_ADDRESS`, `PHONE_NUMBER`, `FACE_IMAGE`, 実行リソース (`PUSH_NOTIFICATION`, `ACCESS_CAMERA`, `GET_CURRENT_POSITION`, `GET_HIGH_ACCURACY_CURRENT_POSITION`, `ACCESS_FITNESS_DATA`), `CHECK_JPKI_*` (証明書現況確認), `CHECK_RESIDENCY_CONTINUITY` (居住継続性判定)
 
 ### ResourceAction
 
@@ -478,3 +480,36 @@ const client = createClient({
 ```
 
 認可コード交換・リフレッシュ・PAR のたびに、issuer を `aud` とする有効期間60秒の ES256 JWT を生成します。DPoP とも併用できます。`clientSecret` との同時指定や不正な鍵設定は `createClient` 時にエラーになります。
+
+### KMS 等の外部署名器
+
+秘密鍵を取り出せない場合は、`CryptoKey` の代わりに `ES256Signer` を渡せます。SDK が `alg: "ES256"` のヘッダーとクレームを構築し、PAR・コード交換・refresh のたびに `sign()` を呼びます。
+
+```typescript
+import { createClient, type ES256Signer } from "@pocketsign/klon-sdk";
+
+const signer: ES256Signer = {
+  signatureFormat: "der",
+  async sign(signingInput) {
+    // signingInput は未ハッシュの JWS Signing Input。
+    const digest = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new Uint8Array(signingInput)),
+    );
+    // アプリ側のアダプター。P-256 / SHA-256 で署名し、DER の Uint8Array を返す。
+    return signDigestWithKMS(digest);
+  },
+};
+
+const client = createClient({
+  issuer: "https://example.com",
+  clientId: "your-client-id",
+  redirectUri: "http://localhost:8080/callback",
+  clientPrivateKey: { key: signer, kid: "your-key-id" },
+});
+```
+
+`signDigestWithKMS` は利用する KMS の API に合わせて実装してください。KMS が未ハッシュのメッセージを受け取る場合は `signingInput` をそのまま渡し、二重にハッシュしないようにしてください。秘密鍵の公開・エクスポートは不要です。対応する公開鍵は、通常の秘密鍵を使う場合と同様に公開 JWKS へ登録します。
+
+- `signatureFormat: "der"`: ASN.1 DER 形式の ECDSA 署名を返します。SDK が JWT 用の形式に変換します。
+- `signatureFormat: "ieee-p1363"`（省略時）: 32バイトの `r` と32バイトの `s` を連結した64バイトを返します。Web Crypto の署名形式と同じです。
+- `sign()` は非同期で、ES256（ECDSA P-256 / SHA-256）署名を行う契約です。KMS のタイムアウト・リトライは実装側で管理します。署名処理の例外は呼び出し元へ伝播し、IdPへのリクエストは送信しません。
